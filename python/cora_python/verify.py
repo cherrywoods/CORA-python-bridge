@@ -8,10 +8,11 @@ from .config import BenchmarkConfig, parse_config
 from .constraints import parse_box_constraints
 from .dynamics import write_dynamics_file
 from .matlab_bridge import MatlabBridge
-from .types import CounterexampleTrace, VerificationResult
+from .types import CounterexampleTrace, Reachtube, VerificationResult
 
 # Default CORA options from ARCH-COMP examples
 _DEFAULT_OPTIONS = {
+    "reachTimeStep": 0.01,
     "tensorOrder": 2,
     "taylorTerms": 4,
     "zonotopeOrder": 20,
@@ -86,22 +87,25 @@ def verify_from_config(
         m_safe_ub = matlab.double(safe_ub)
 
         # Call MATLAB helper
-        res, elapsed, traj_t, traj_x, traj_u = engine.engine.cora_verify_helper(
-            func_name,
-            float(config.num_nn_input),
-            float(config.num_nn_output),
-            R0_lb,
-            R0_ub,
-            m_safe_lb,
-            m_safe_ub,
-            float(config.t_final),
-            float(config.step_size),
-            model_path,
-            float(opts["tensorOrder"]),
-            float(opts["taylorTerms"]),
-            float(opts["zonotopeOrder"]),
-            opts["poly_method"],
-            nargout=5,
+        res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t = (
+            engine.engine.cora_verify_helper(
+                func_name,
+                float(config.num_nn_input),
+                float(config.num_nn_output),
+                R0_lb,
+                R0_ub,
+                m_safe_lb,
+                m_safe_ub,
+                float(config.t_final),
+                float(config.step_size),
+                model_path,
+                float(opts["reachTimeStep"]),
+                float(opts["tensorOrder"]),
+                float(opts["taylorTerms"]),
+                float(opts["zonotopeOrder"]),
+                opts["poly_method"],
+                nargout=8,
+            )
         )
 
         # Parse counterexample
@@ -114,10 +118,21 @@ def verify_from_config(
                 u=np.asarray(traj_u).T,
             )
 
+        # Parse reachtube (available for VERIFIED / UNKNOWN)
+        reachtube = None
+        if res != "FALSIFIED" and rt_lb:
+            # MATLAB returns (num_states, N); transpose to (N, num_states)
+            reachtube = Reachtube(
+                t=np.asarray(rt_t).squeeze(),
+                lb=np.asarray(rt_lb).T,
+                ub=np.asarray(rt_ub).T,
+            )
+
         return VerificationResult(
             status=res,
             time_seconds=float(elapsed),
             counterexample=counterexample,
+            reachtube=reachtube,
         )
 
     finally:
