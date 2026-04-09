@@ -1,0 +1,128 @@
+import shutil
+from pathlib import Path
+
+import matlab
+import numpy as np
+
+from .config import BenchmarkConfig, parse_config
+from .constraints import parse_box_constraints
+from .dynamics import write_dynamics_file
+from .matlab_bridge import MatlabBridge
+from .types import CounterexampleTrace, VerificationResult
+
+# Default CORA options from ARCH-COMP examples
+_DEFAULT_OPTIONS = {
+    "tensorOrder": 2,
+    "taylorTerms": 4,
+    "zonotopeOrder": 20,
+    "poly_method": "singh",
+}
+
+
+def verify_from_config(
+    config_path: str | Path,
+    onnx_path: str | Path | None = None,
+    cora_options: dict | None = None,
+    engine: MatlabBridge | None = None,
+) -> VerificationResult:
+    """Run CORA verification on a benchmark defined by a YAML config.
+
+    Args:
+        config_path: Path to the YAML benchmark config file.
+        onnx_path: Optional override for the ONNX controller path.
+            If None, uses the model_dir from the YAML config.
+        cora_options: Optional dict of CORA reachability options.
+            Keys: tensorOrder, taylorTerms, zonotopeOrder, poly_method.
+            Overrides both defaults and YAML cora_options.
+        engine: Optional MatlabBridge instance to reuse.
+            If None, a new engine is started and stopped after verification.
+
+    Returns:
+        VerificationResult with status, timing, and optional counterexample.
+    """
+    # Parse config
+    config = parse_config(config_path)
+
+    # Resolve ONNX path
+    if onnx_path is not None:
+        model_path = str(Path(onnx_path).resolve())
+    else:
+        model_path = config.model_path
+
+    if not model_path or not Path(model_path).exists():
+        raise FileNotFoundError(f"ONNX model not found: {model_path}")
+    if not model_path.endswith(".onnx"):
+        raise ValueError(
+            f"Only .onnx models are supported, got: {model_path}. "
+            f"Convert .pt models to .onnx first."
+        )
+
+    # Parse constraints
+    safe_lb, safe_ub = parse_box_constraints(config)
+
+    # Generate dynamics .m file
+    dynamics_dir, func_name = write_dynamics_file(config)
+
+    # Resolve CORA options: defaults <- YAML <- Python API
+    opts = dict(_DEFAULT_OPTIONS)
+    opts.update(config.cora_options)
+    if cora_options:
+        opts.update(cora_options)
+
+    # Engine management
+    owns_engine = engine is None
+    if owns_engine:
+        engine = MatlabBridge()
+        engine.start()
+
+    try:
+        # Add dynamics directory to MATLAB path
+        engine.add_to_path(dynamics_dir)
+
+        # Convert arrays to MATLAB doubles
+        R0_lb = matlab.double(config.initial_lb)
+        R0_ub = matlab.double(config.initial_ub)
+        m_safe_lb = matlab.double(safe_lb)
+        m_safe_ub = matlab.double(safe_ub)
+
+        # Call MATLAB helper
+        res, elapsed, traj_t, traj_x, traj_u = engine.engine.cora_verify_helper(
+            func_name,
+            float(config.num_nn_input),
+            float(config.num_nn_output),
+            R0_lb,
+            R0_ub,
+            m_safe_lb,
+            m_safe_ub,
+            float(config.t_final),
+            float(config.step_size),
+            model_path,
+            float(opts["tensorOrder"]),
+            float(opts["taylorTerms"]),
+            float(opts["zonotopeOrder"]),
+            opts["poly_method"],
+            nargout=5,
+        )
+
+        # Parse counterexample
+        counterexample = None
+        if res == "FALSIFIED" and traj_t:
+            # MATLAB returns (dim, T) arrays; transpose to (T, dim)
+            counterexample = CounterexampleTrace(
+                t=np.asarray(traj_t).squeeze(),
+                x=np.asarray(traj_x).T,
+                u=np.asarray(traj_u).T,
+            )
+
+        return VerificationResult(
+            status=res,
+            time_seconds=float(elapsed),
+            counterexample=counterexample,
+        )
+
+    finally:
+        # Clean up temp dynamics directory
+        shutil.rmtree(dynamics_dir, ignore_errors=True)
+
+        if owns_engine:
+            engine.stop()
