@@ -2,7 +2,8 @@ function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t] = cora_verif
     dynamics_name, num_states, num_inputs, ...
     R0_lb, R0_ub, safe_lb, safe_ub, ...
     tFinal, samplingTime, onnx_path, ...
-    reachTimeStep, tensorOrder, taylorTerms, zonotopeOrder, poly_method)
+    reachTimeStep, tensorOrder, taylorTerms, zonotopeOrder, poly_method, ...
+    splitR0)
 % cora_verify_helper - Helper function called from Python to run CORA
 %    verification on a neural network controlled system.
 %
@@ -20,6 +21,7 @@ function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t] = cora_verif
 %    taylorTerms    - number of Taylor terms
 %    zonotopeOrder  - zonotope order
 %    poly_method    - NN evaluation method (e.g., "singh")
+%    splitR0        - max depth of recursive initial-set splitting (0 disables)
 %
 % Outputs:
 %    res     - verification result string
@@ -69,7 +71,7 @@ spec = specification(interval(safe_lb, safe_ub), 'safeSet');
 
 % Verification
 t_start = tic;
-[res, R, traj] = verify(sys, spec, params, options, true);
+[res, R, traj] = verify(sys, spec, params, options, true, splitR0);
 elapsed = toc(t_start);
 
 % Extract counterexample trajectory

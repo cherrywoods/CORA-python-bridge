@@ -17,6 +17,9 @@ _DEFAULT_OPTIONS = {
     "taylorTerms": 4,
     "zonotopeOrder": 20,
     "poly_method": "singh",
+    # Max depth of CORA's recursive initial-set splitting branch-and-bound
+    # (see @neurNetContrSys/verify.m). 0 disables splitting.
+    "splitR0": 0,
 }
 
 
@@ -33,8 +36,9 @@ def verify_from_config(
         onnx_path: Optional override for the ONNX controller path.
             If None, uses the model_dir from the YAML config.
         cora_options: Optional dict of CORA reachability options.
-            Keys: tensorOrder, taylorTerms, zonotopeOrder, poly_method.
-            Overrides both defaults and YAML cora_options.
+            Keys: reachTimeStep, tensorOrder, taylorTerms, zonotopeOrder,
+            poly_method, splitR0. Overrides both defaults and YAML
+            cora_options.
         engine: Optional MatlabBridge instance to reuse.
             If None, a new engine is started and stopped after verification.
 
@@ -104,6 +108,7 @@ def verify_from_config(
                 float(opts["taylorTerms"]),
                 float(opts["zonotopeOrder"]),
                 opts["poly_method"],
+                float(opts["splitR0"]),
                 nargout=8,
             )
         )
