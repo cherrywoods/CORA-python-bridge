@@ -187,7 +187,32 @@ function [layers,inputSize,currentSize,nextInputIdx] = ...
             b = double(dlt_layer.Bias);
             layers{end+1} = nnLinearLayer(W, b, dlt_layer.Name);
     
-    elseif isa(dlt_layer, 'nnet.onnx.layer.ElementwiseAffineLayer') 
+    elseif isa(dlt_layer, 'nnet.cnn.layer.ScalingLayer')
+        % importNetworkFromONNX (R2024+) decomposes ONNX MatMul+Add into
+        % a FullyConnectedLayer (with Bias=0) followed by a ScalingLayer
+        % whose Bias field carries the actual bias vector. Fold a
+        % pure-bias ScalingLayer (Scale==1) into the previous nnLinearLayer.
+        s = double(dlt_layer.Scale);
+        o = double(dlt_layer.Bias);
+        s = reshape(s, [], 1);
+        o = reshape(o, [], 1);
+        if ~isempty(layers) && isa(layers{end}, 'nnLinearLayer') ...
+                && all(s == 1, 'all')
+            % fold bias into preceding linear layer
+            prev = layers{end};
+            b_prev = reshape(double(prev.b), [], 1);
+            if isscalar(o)
+                b_new = b_prev + o;
+            else
+                b_new = b_prev + o;
+            end
+            layers{end} = nnLinearLayer(prev.W, b_new, prev.name);
+        else
+            % general case: emit an elementwise affine layer y = s.*x + o
+            layers{end+1} = nnElementwiseAffineLayer(s, o, dlt_layer.Name);
+        end
+
+    elseif isa(dlt_layer, 'nnet.onnx.layer.ElementwiseAffineLayer')
         s = double(dlt_layer.Scale);
         o = double(dlt_layer.Offset);
 
