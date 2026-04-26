@@ -1,9 +1,10 @@
-function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t] = cora_verify_helper( ...
+function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t, ...
+          vcx_x, vcx_t, vcx_dir] = cora_verify_helper( ...
     dynamics_name, num_states, num_inputs, ...
     R0_lb, R0_ub, safe_lb, safe_ub, ...
     tFinal, samplingTime, onnx_path, ...
     reachTimeStep, tensorOrder, taylorTerms, zonotopeOrder, poly_method, ...
-    splitR0)
+    splitR0, extract_virtual_cx, virtual_cx_method)
 % cora_verify_helper - Helper function called from Python to run CORA
 %    verification on a neural network controlled system.
 %
@@ -22,6 +23,13 @@ function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t] = cora_verif
 %    zonotopeOrder  - zonotope order
 %    poly_method    - NN evaluation method (e.g., "singh")
 %    splitR0        - max depth of recursive initial-set splitting (0 disables)
+%    extract_virtual_cx - logical, if true compute one support-function
+%                         witness state per axis-aligned direction per
+%                         reachtube segment (off by default for cost)
+%    virtual_cx_method  - supportFunc method to use for the witness
+%                         ('upper', 'split', 'conZonotope', ...). 'upper'
+%                         is closed-form and sound; tighter methods cost
+%                         more.
 %
 % Outputs:
 %    res     - verification result string
@@ -32,6 +40,12 @@ function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t] = cora_verif
 %    rt_lb   - reachtube lower bounds (num_states x N, empty if FALSIFIED)
 %    rt_ub   - reachtube upper bounds (num_states x N, empty if FALSIFIED)
 %    rt_t    - reachtube time points (1 x N, empty if FALSIFIED)
+%    vcx_x   - virtual-cx witness states (num_states x M, empty unless
+%              extract_virtual_cx). Each column is a state on the segment's
+%              reachable set that maximises one axis-aligned direction.
+%    vcx_t   - witness times (1 x M).
+%    vcx_dir - signed 1-based dimension index s*i (positive for +e_i,
+%              negative for -e_i) parallel to columns of vcx_x.
 
 % ------------------------------ BEGIN CODE -------------------------------
 
@@ -137,6 +151,47 @@ if ~strcmp(res, 'FALSIFIED') && ~isempty(R)
         rt_lb = tmp_lb(:, 1:count);
         rt_ub = tmp_ub(:, 1:count);
         rt_t = tmp_t(1:count);
+    end
+end
+
+% Extract virtual-cx witnesses (one per axis direction per valid segment)
+vcx_x = zeros(num_states, 0);
+vcx_t = zeros(1, 0);
+vcx_dir = zeros(1, 0);
+if extract_virtual_cx && ~strcmp(res, 'FALSIFIED') && ~isempty(R)
+    n_dirs = 2 * num_states;
+    n_total = numel(R) * n_dirs;
+    tmp_x = zeros(num_states, n_total);
+    tmp_vt = zeros(1, n_total);
+    tmp_vd = zeros(1, n_total);
+    col = 0;
+    for j = 1:numel(R)
+        if isempty(R(j).timeInterval) || isempty(R(j).timeInterval.set)
+            continue;
+        end
+        seg_set = R(j).timeInterval.set{1};
+        t_interval = R(j).timeInterval.time{1};
+        if isa(t_interval, 'interval')
+            t_seg = supremum(t_interval);
+        else
+            t_seg = t_interval;
+        end
+        for i = 1:num_states
+            for s = [1, -1]
+                col = col + 1;
+                dir_v = zeros(num_states, 1);
+                dir_v(i) = s;
+                [~, x_w] = supportFunc(seg_set, dir_v, virtual_cx_method);
+                tmp_x(:, col) = x_w;
+                tmp_vt(col) = t_seg;
+                tmp_vd(col) = s * i;
+            end
+        end
+    end
+    if col > 0
+        vcx_x = tmp_x(:, 1:col);
+        vcx_t = tmp_vt(1:col);
+        vcx_dir = tmp_vd(1:col);
     end
 end
 

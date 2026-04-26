@@ -26,6 +26,23 @@ class Reachtube:
 
 
 @dataclass
+class VirtualCounterexamples:
+    """Support-function witnesses on the reachtube's segment sets.
+
+    Each column of ``x`` is a point on a CORA reach-set zonotope (or
+    polyZonotope) that maximises one signed axis-aligned direction at
+    one segment. Unlike the corners of the segment's interval hull,
+    these points are guaranteed to lie inside the actual reach set;
+    using interval-hull corners would give virtual cxs that the reach
+    does not contain.
+    """
+
+    x: np.ndarray  # (M, num_states) witness states
+    t: np.ndarray  # (M,) witness times
+    direction: np.ndarray  # (M,) signed 1-based dim index (s*i)
+
+
+@dataclass
 class VerificationResult:
     """Result of CORA verification."""
 
@@ -33,3 +50,4 @@ class VerificationResult:
     time_seconds: float
     counterexample: CounterexampleTrace | None = None
     reachtube: Reachtube | None = None
+    virtual_cxs: VirtualCounterexamples | None = None

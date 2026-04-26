@@ -8,7 +8,12 @@ from .config import BenchmarkConfig, parse_config
 from .constraints import parse_box_constraints
 from .dynamics import write_dynamics_file
 from .matlab_bridge import MatlabBridge
-from .types import CounterexampleTrace, Reachtube, VerificationResult
+from .types import (
+    CounterexampleTrace,
+    Reachtube,
+    VerificationResult,
+    VirtualCounterexamples,
+)
 
 # Default CORA options from ARCH-COMP examples
 _DEFAULT_OPTIONS = {
@@ -20,6 +25,15 @@ _DEFAULT_OPTIONS = {
     # Max depth of CORA's recursive initial-set splitting branch-and-bound
     # (see @neurNetContrSys/verify.m). 0 disables splitting.
     "splitR0": 0,
+    # Extract one supportFunc witness per axis-aligned direction per
+    # reachtube segment. Off by default; turn on to get virtual
+    # counterexamples that lie on CORA's actual reach set rather than on
+    # the looser interval hull.
+    "extract_virtual_cx": False,
+    # supportFunc method used to compute the witness. 'upper' is
+    # closed-form and sound; 'split' / 'conZonotope' / 'bnb' / etc. are
+    # tighter but more expensive.
+    "virtual_cx_method": "upper",
 }
 
 
@@ -91,26 +105,27 @@ def verify_from_config(
         m_safe_ub = matlab.double(safe_ub)
 
         # Call MATLAB helper
-        res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t = (
-            engine.engine.cora_verify_helper(
-                func_name,
-                float(config.num_nn_input),
-                float(config.num_nn_output),
-                R0_lb,
-                R0_ub,
-                m_safe_lb,
-                m_safe_ub,
-                float(config.t_final),
-                float(config.step_size),
-                model_path,
-                float(opts["reachTimeStep"]),
-                float(opts["tensorOrder"]),
-                float(opts["taylorTerms"]),
-                float(opts["zonotopeOrder"]),
-                opts["poly_method"],
-                float(opts["splitR0"]),
-                nargout=8,
-            )
+        (res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t,
+         vcx_x, vcx_t, vcx_dir) = engine.engine.cora_verify_helper(
+            func_name,
+            float(config.num_nn_input),
+            float(config.num_nn_output),
+            R0_lb,
+            R0_ub,
+            m_safe_lb,
+            m_safe_ub,
+            float(config.t_final),
+            float(config.step_size),
+            model_path,
+            float(opts["reachTimeStep"]),
+            float(opts["tensorOrder"]),
+            float(opts["taylorTerms"]),
+            float(opts["zonotopeOrder"]),
+            opts["poly_method"],
+            float(opts["splitR0"]),
+            bool(opts["extract_virtual_cx"]),
+            opts["virtual_cx_method"],
+            nargout=11,
         )
 
         # Parse counterexample
@@ -136,11 +151,22 @@ def verify_from_config(
                 ub=np.asarray(rt_ub).T,
             )
 
+        # Parse virtual counterexamples (one per axis direction per
+        # reachtube segment when extract_virtual_cx=True).
+        virtual_cxs = None
+        if vcx_x:
+            virtual_cxs = VirtualCounterexamples(
+                x=np.asarray(vcx_x).T,
+                t=np.asarray(vcx_t).reshape(-1),
+                direction=np.asarray(vcx_dir).reshape(-1).astype(int),
+            )
+
         return VerificationResult(
             status=res,
             time_seconds=float(elapsed),
             counterexample=counterexample,
             reachtube=reachtube,
+            virtual_cxs=virtual_cxs,
         )
 
     finally:
