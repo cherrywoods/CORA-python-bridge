@@ -116,9 +116,11 @@ def verify_from_config(
         # Parse counterexample
         counterexample = None
         if res == "FALSIFIED" and traj_t:
-            # MATLAB returns (dim, T) arrays; transpose to (T, dim)
+            # MATLAB returns (dim, T) arrays; transpose to (T, dim).
+            # Use reshape(-1) instead of squeeze() so a single-timestamp
+            # trace stays 1-D rather than collapsing to a 0-D scalar.
             counterexample = CounterexampleTrace(
-                t=np.asarray(traj_t).squeeze(),
+                t=np.asarray(traj_t).reshape(-1),
                 x=np.asarray(traj_x).T,
                 u=np.asarray(traj_u).T,
             )
@@ -126,9 +128,10 @@ def verify_from_config(
         # Parse reachtube (available for VERIFIED / UNKNOWN)
         reachtube = None
         if res != "FALSIFIED" and rt_lb:
-            # MATLAB returns (num_states, N); transpose to (N, num_states)
+            # MATLAB returns (num_states, N); transpose to (N, num_states).
+            # reshape(-1) keeps a single-interval reach 1-D.
             reachtube = Reachtube(
-                t=np.asarray(rt_t).squeeze(),
+                t=np.asarray(rt_t).reshape(-1),
                 lb=np.asarray(rt_lb).T,
                 ub=np.asarray(rt_ub).T,
             )
