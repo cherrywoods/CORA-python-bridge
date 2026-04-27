@@ -27,19 +27,26 @@ class Reachtube:
 
 @dataclass
 class VirtualCounterexamples:
-    """Support-function witnesses on the reachtube's segment sets.
+    """Support-function witnesses on the reachtube's segment sets, plus
+    matching starting points in R_0.
 
-    Each column of ``x`` is a point on a CORA reach-set zonotope (or
+    Each row of ``x`` is a point on a CORA reach-set zonotope (or
     polyZonotope) that maximises one signed axis-aligned direction at
     one segment. Unlike the corners of the segment's interval hull,
-    these points are guaranteed to lie inside the actual reach set;
-    using interval-hull corners would give virtual cxs that the reach
-    does not contain.
+    these points lie inside the actual reach set.
+
+    ``x0`` carries one starting point per axis direction -- the
+    supportFunc vertex of R_0 in that direction. These are the
+    initial states the consumer simulates forward from to construct
+    virtual-CX (x0, oc_real) training pairs. ``x0_direction`` is a
+    parallel array of signed 1-based dim indices.
     """
 
     x: np.ndarray  # (M, num_states) witness states
     t: np.ndarray  # (M,) witness times
     direction: np.ndarray  # (M,) signed 1-based dim index (s*i)
+    x0: np.ndarray  # (D, num_states) R_0 starting points (D = 2 * num_states)
+    x0_direction: np.ndarray  # (D,) signed 1-based dim index
 
 
 @dataclass

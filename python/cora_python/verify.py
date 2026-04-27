@@ -106,26 +106,28 @@ def verify_from_config(
 
         # Call MATLAB helper
         (res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t,
-         vcx_x, vcx_t, vcx_dir) = engine.engine.cora_verify_helper(
-            func_name,
-            float(config.num_nn_input),
-            float(config.num_nn_output),
-            R0_lb,
-            R0_ub,
-            m_safe_lb,
-            m_safe_ub,
-            float(config.t_final),
-            float(config.step_size),
-            model_path,
-            float(opts["reachTimeStep"]),
-            float(opts["tensorOrder"]),
-            float(opts["taylorTerms"]),
-            float(opts["zonotopeOrder"]),
-            opts["poly_method"],
-            float(opts["splitR0"]),
-            bool(opts["extract_virtual_cx"]),
-            opts["virtual_cx_method"],
-            nargout=11,
+         vcx_x, vcx_t, vcx_dir, vcx_x0, vcx_x0_dir) = (
+            engine.engine.cora_verify_helper(
+                func_name,
+                float(config.num_nn_input),
+                float(config.num_nn_output),
+                R0_lb,
+                R0_ub,
+                m_safe_lb,
+                m_safe_ub,
+                float(config.t_final),
+                float(config.step_size),
+                model_path,
+                float(opts["reachTimeStep"]),
+                float(opts["tensorOrder"]),
+                float(opts["taylorTerms"]),
+                float(opts["zonotopeOrder"]),
+                opts["poly_method"],
+                float(opts["splitR0"]),
+                bool(opts["extract_virtual_cx"]),
+                opts["virtual_cx_method"],
+                nargout=13,
+            )
         )
 
         # Parse counterexample
@@ -152,13 +154,16 @@ def verify_from_config(
             )
 
         # Parse virtual counterexamples (one per axis direction per
-        # reachtube segment when extract_virtual_cx=True).
+        # reachtube segment when extract_virtual_cx=True), plus the
+        # supportFunc vertices of R_0 (one per axis direction).
         virtual_cxs = None
         if vcx_x:
             virtual_cxs = VirtualCounterexamples(
                 x=np.asarray(vcx_x).T,
                 t=np.asarray(vcx_t).reshape(-1),
                 direction=np.asarray(vcx_dir).reshape(-1).astype(int),
+                x0=np.asarray(vcx_x0).T,
+                x0_direction=np.asarray(vcx_x0_dir).reshape(-1).astype(int),
             )
 
         return VerificationResult(

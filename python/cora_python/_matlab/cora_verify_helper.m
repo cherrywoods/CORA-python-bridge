@@ -1,5 +1,5 @@
 function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t, ...
-          vcx_x, vcx_t, vcx_dir] = cora_verify_helper( ...
+          vcx_x, vcx_t, vcx_dir, vcx_x0, vcx_x0_dir] = cora_verify_helper( ...
     dynamics_name, num_states, num_inputs, ...
     R0_lb, R0_ub, safe_lb, safe_ub, ...
     tFinal, samplingTime, onnx_path, ...
@@ -46,6 +46,13 @@ function [res, elapsed, traj_t, traj_x, traj_u, rt_lb, rt_ub, rt_t, ...
 %    vcx_t   - witness times (1 x M).
 %    vcx_dir - signed 1-based dimension index s*i (positive for +e_i,
 %              negative for -e_i) parallel to columns of vcx_x.
+%    vcx_x0  - corresponding starting points in R_0 (num_states x D, empty
+%              unless extract_virtual_cx). One column per axis direction
+%              (D = 2 * num_states), the supportFunc vertex of R_0 in that
+%              direction. These are the x0s the consumer simulates forward
+%              from to obtain virtual-CX (x0, oc_real) pairs.
+%    vcx_x0_dir - signed 1-based dimension index per column of vcx_x0
+%              (1 x D), in the same order as the columns.
 
 % ------------------------------ BEGIN CODE -------------------------------
 
@@ -155,9 +162,14 @@ if ~strcmp(res, 'FALSIFIED') && ~isempty(R)
 end
 
 % Extract virtual-cx witnesses (one per axis direction per valid segment)
+% plus the supportFunc vertex of R_0 in each axis direction (one per
+% direction; same across segments) -- the consumer uses these as x0 to
+% simulate forward and obtain virtual-CX (x0, oc_real) pairs.
 vcx_x = zeros(num_states, 0);
 vcx_t = zeros(1, 0);
 vcx_dir = zeros(1, 0);
+vcx_x0 = zeros(num_states, 0);
+vcx_x0_dir = zeros(1, 0);
 if extract_virtual_cx && ~strcmp(res, 'FALSIFIED') && ~isempty(R)
     n_dirs = 2 * num_states;
     n_total = numel(R) * n_dirs;
@@ -193,6 +205,27 @@ if extract_virtual_cx && ~strcmp(res, 'FALSIFIED') && ~isempty(R)
         vcx_t = tmp_vt(1:col);
         vcx_dir = tmp_vd(1:col);
     end
+
+    % Compute x0 in R_0 per direction. R_0 is an axis-aligned zonotope
+    % built from the input interval, so supportFunc in axis direction
+    % gives a face vertex (extreme in that coord, center elsewhere).
+    R0_set = zonotope(interval(R0_lb, R0_ub));
+    n_x0 = 2 * num_states;
+    tmp_x0 = zeros(num_states, n_x0);
+    tmp_x0_dir = zeros(1, n_x0);
+    col = 0;
+    for i = 1:num_states
+        for s = [1, -1]
+            col = col + 1;
+            dir_v = zeros(num_states, 1);
+            dir_v(i) = s;
+            [~, x0_w] = supportFunc(R0_set, dir_v);
+            tmp_x0(:, col) = x0_w;
+            tmp_x0_dir(col) = s * i;
+        end
+    end
+    vcx_x0 = tmp_x0;
+    vcx_x0_dir = tmp_x0_dir;
 end
 
 % ------------------------------ END OF CODE ------------------------------
