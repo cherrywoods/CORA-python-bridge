@@ -72,6 +72,17 @@ nn = neuralNetwork.readONNXNetwork(onnx_path);
 % Neural Network Controlled System
 sys = neurNetContrSys(sys, nn, samplingTime);
 
+% Ensure cached derivative files (jacobian/hessian/...) for this controlled
+% system are on the MATLAB path. CORA's derivatives() short-circuits when
+% _lastVersion.mat reports the cached files are still valid and only calls
+% addpath() in the recompute path, so a freshly started engine sees the
+% files on disk but not on the path -- the function handle
+% @jacobian_<name>Controlled then fails to resolve at call time.
+aux_path = fullfile(CORAROOT, 'models', 'auxiliary', sys.name);
+if isfolder(aux_path)
+    addpath(aux_path);
+end
+
 % Parameters
 params.tFinal = tFinal;
 params.R0 = zonotope(interval(R0_lb, R0_ub));
